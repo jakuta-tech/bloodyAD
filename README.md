@@ -26,9 +26,10 @@ See the [wiki](https://github.com/CravateRouge/bloodyAD/wiki) for more.
 ## Support
 Like this project? Donations are greatly appreciated :relaxed: [![](https://img.shields.io/static/v1?label=Sponsor&message=%E2%9D%A4&logo=GitHub&color=%23fe8e86)](https://github.com/sponsors/CravateRouge)
 
-Need personalized support? send me an [email](mailto:baptiste.crepin@ntymail.com) for trainings or custom features.
+Need personalized support? send us an [email](mailto:contact@cravaterouge.com) or check our website [cravaterouge.com](https://cravaterouge.com/?utm_source=bloodyad_readme) to see all our cybersecurity services.
 
 ## Acknowledgements
+- Thanks to [@skelsec](https://github.com/skelsec) for his amazing libraries especially [MSLDAP](https://github.com/skelsec/msldap) which is now the engine on which bloodyAD is running.
 - Thanks to [impacket](https://github.com/fortra/impacket) contributors. [Structures](https://github.com/fortra/impacket/blob/master/impacket/structure.py) and several [LDAP attacks](https://github.com/fortra/impacket/blob/master/impacket/examples/ntlmrelayx/attacks/ldapattack.py) are based on their work.
 - Thanks to [@PowerShellMafia](https://github.com/PowerShellMafia) team ([PowerView.ps1](https://github.com/PowerShellMafia/PowerSploit/blob/master/Recon/PowerView.ps1)) and their work on AD which inspired this tool.
 - Thanks to [@dirkjanm](https://github.com/dirkjanm) ([adidnsdump.py](https://github.com/dirkjanm/adidnsdump)) and ([@Kevin-Robertson](https://github.com/Kevin-Robertson))([Invoke-DNSUpdate.ps1](https://github.com/Kevin-Robertson/Powermad/blob/master/Invoke-DNSUpdate.ps1)) for their work on AD DNS which inspired DNS functionnalities.

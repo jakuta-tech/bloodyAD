@@ -1,3 +1,8 @@
+import logging
+
+LOG = logging.getLogger("bloodyAD")
+
+
 class BloodyError(Exception):
     pass
 
@@ -18,8 +23,7 @@ class ResultError(LDAPError):
         elif self.result["result"] == 19:
             self.message = (
                 "[-] Could not modify object, the server reports a constrained"
-                " violation: "
-                + self.result["message"]
+                " violation: " + self.result["message"]
             )
         else:
             self.message = "[-] The server returned an error: " + self.result["message"]
@@ -40,7 +44,7 @@ class TooManyResultsError(LDAPError):
         self.filter = ldap_filter
         self.base = search_base
         self.limit = 10
-        self.entries = entries
+        self.entries = list(entries)
 
         if len(self.entries) <= self.limit:
             self.results = "\n".join(entry["dn"] for entry in entries)

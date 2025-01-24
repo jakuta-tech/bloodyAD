@@ -1,20 +1,13 @@
+from bloodyAD.exceptions import LOG
 from bloodyAD.formatters import (
     ldaptypes,
     accesscontrol,
     adschema,
 )
-import logging, json, sys, types, base64
-import ldap3
+from bloodyAD.network.ldap import Scope, phantomRoot
+import types, base64
 from winacl import dtyp
 from winacl.dtyp.security_descriptor import SECURITY_DESCRIPTOR
-from pyasn1.type import namedtype, univ
-
-
-LOG = logging.getLogger("bloodyAD")
-LOG.setLevel(logging.DEBUG)
-handler = logging.StreamHandler(sys.stdout)
-handler.setLevel(logging.DEBUG)
-LOG.addHandler(handler)
 
 
 def addRight(
@@ -44,7 +37,7 @@ def addRight(
         if ace["AceType"] == access_denied_type and new_mask.hasPriv(mask["Mask"]):
             sd["Dacl"].aces.remove(ace)
             LOG.debug("[-] An interfering Access-Denied ACE has been removed:")
-            LOG.info(json.dumps(accesscontrol.decodeAce(ace)))
+            LOG.debug(ace)
         # Adds ACE if not already added
         elif mask.hasPriv(new_mask["Mask"]):
             hasPriv = True
@@ -99,9 +92,9 @@ def getSD(
 ):
     sd_data = next(
         conn.ldap.bloodysearch(
-            object_id, attr=ldap_attribute, control_flag=control_flag, raw=True
+            object_id, attr=[ldap_attribute], control_flag=control_flag, raw=True
         )
-    )[ldap_attribute]
+    ).get(ldap_attribute, [])
     if len(sd_data) < 1:
         LOG.warning(
             "[!] No security descriptor has been returned, a new one will be created"
@@ -287,13 +280,18 @@ class AceFlag:
 class LazyAdSchema:
     guids = set()
     sids = set()
+    # All known guids
     guid_dict = {
         **adschema.OBJECT_TYPES,
         "Self": "Self",
-    }  # Special object to design rule applies to self
+    }
+    # All known sids
     sid_dict = dtyp.sid.well_known_sids_sid_name_map
     isResolved = False
 
+    # We resolve every guid/sid in one request to be more efficient
+    # Put the load on the server instead of the client
+    # Perfect in case of bad network
     def _resolveAll(self):
         if self.isResolved:
             return
@@ -314,30 +312,18 @@ class LazyAdSchema:
                 filters.append(buffer_filter)
                 buffer_filter = ""
                 filter_nb = 0
-            guid_bin_str = "\\" + "\\".join([
-                "{:02x}".format(b)
-                for b in dtyp.guid.GUID().from_string(guid).to_bytes()
-            ])
+            guid_bin_str = "\\" + "\\".join(
+                [
+                    "{:02x}".format(b)
+                    for b in dtyp.guid.GUID().from_string(guid).to_bytes()
+                ]
+            )
             buffer_filter += f"(rightsGuid={str(guid)})(schemaIDGUID={guid_bin_str})"
             filter_nb += 2
         filters.append(buffer_filter)
 
         # Search in all non application partitions
         # TODO: search in GC and add domain linked to it as DOMAIN\sAMAccountName, maybe try trusts in the future?
-        class SearchOptionsRequest(univ.Sequence):
-            componentType = namedtype.NamedTypes(
-                namedtype.NamedType("Flags", univ.Integer())
-            )
-
-        scontrols = SearchOptionsRequest()
-        SERVER_SEARCH_FLAG_PHANTOM_ROOT = 2
-        scontrols.setComponentByName("Flags", SERVER_SEARCH_FLAG_PHANTOM_ROOT)
-        LDAP_SERVER_SEARCH_OPTIONS_OID = "1.2.840.113556.1.4.1340"
-        controls = [
-            ldap3.protocol.controls.build_control(
-                LDAP_SERVER_SEARCH_OPTIONS_OID, False, scontrols
-            )
-        ]
         for ldap_filter in filters:
             entries = self.conn.ldap.bloodysearch(
                 "",
@@ -349,23 +335,21 @@ class LazyAdSchema:
                     "rightsGuid",
                     "schemaIDGUID",
                 ],
-                search_scope=ldap3.SUBTREE,
-                controls=controls,
+                search_scope=Scope.SUBTREE,
+                controls=[phantomRoot()],
             )
             for entry in entries:
-                if entry["objectSid"]:
+                if entry.get("objectSid"):
                     self.sid_dict[entry["objectSid"]] = (
                         entry["sAMAccountName"]
-                        if entry["sAMAccountName"]
+                        if entry.get("sAMAccountName")
                         else entry["name"]
                     )
                 else:
-                    if entry["rightsGuid"]:
+                    if entry.get("rightsGuid"):
                         key = entry["rightsGuid"]
-                    elif entry["schemaIDGUID"]:
-                        key = entry["schemaIDGUID"][
-                            1:-1
-                        ]  # Removes brackets for GUID formatted with ldap3 format_uuid_le
+                    elif entry.get("schemaIDGUID"):
+                        key = entry["schemaIDGUID"]
                     else:
                         LOG.warning(f"[!] No guid/sid returned for {entry}")
                         continue
@@ -381,9 +365,11 @@ class LazyAdSchema:
             self.guids.add(guid)
 
     def addsid(self, sid):
+        # Should not add in set to resolve after if it is already resolved
         if sid not in self.sid_dict:
             self.sids.add(sid)
 
+    # Return name mapped to the guid
     def getguid(self, guid):
         try:
             return self.guid_dict[guid]
@@ -394,6 +380,7 @@ class LazyAdSchema:
             else:
                 return guid
 
+    # Return name mapped to the sid
     def getsid(self, sid):
         try:
             return self.sid_dict[sid]
@@ -511,7 +498,7 @@ def renderSearchResult(entries):
             if type(attr_members) in [list, types.GeneratorType]:
                 decoded_entry[attr_name] = []
                 for member in attr_members:
-                    if type(member) == bytes:
+                    if type(member) is bytes:
                         try:
                             decoded = member.decode()
                         except UnicodeDecodeError:
@@ -520,7 +507,7 @@ def renderSearchResult(entries):
                         decoded = member
                     decoded_entry[attr_name].append(decoded)
             else:
-                if type(attr_members) == bytes:
+                if type(attr_members) is bytes:
                     try:
                         decoded = attr_members.decode()
                     except UnicodeDecodeError:

